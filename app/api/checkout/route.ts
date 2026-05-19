@@ -18,7 +18,7 @@ export async function POST(request: Request) {
     db.orders = Array.isArray(db.orders) ? db.orders : [];
 
     const currentBalance = Number(db.client.balance ?? 0) || 0;
-    const newBalance = currentBalance - total;
+    const newBalance = Number((currentBalance - total).toFixed(2));
     const newOrder = {
       items: body.items,
       total,
@@ -40,6 +40,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error('Checkout error:', error);
-    return NextResponse.json({ error: 'Unable to confirm order' }, { status: 500 });
+    const message = error instanceof Error ? error.message : 'Unable to confirm order';
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
