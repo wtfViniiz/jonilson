@@ -46,6 +46,24 @@ const parseMoneyInput = (value: string) => {
   return Number(value.replace(/\./g, '').replace(',', '.'));
 };
 
+const requestJson = async <T,>(input: RequestInfo | URL, init?: RequestInit): Promise<T> => {
+  const response = await fetch(input, init);
+  let payload: any = null;
+
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!response.ok) {
+    const message = payload?.error || 'Request failed';
+    throw new Error(message);
+  }
+
+  return payload as T;
+};
+
 const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   const [view, setView] = useState<View>(mode === 'admin' ? 'admin-login' : 'order');
   const [products, setProducts] = useState<Product[]>([]);
@@ -61,26 +79,20 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
 
   const fetchData = async () => {
     try {
-      const [prodsRes, clientRes, settingsRes, ordersRes] = await Promise.all([
-        fetch('/api/products'),
-        fetch('/api/client'),
-        fetch('/api/settings'),
-        fetch('/api/orders')
-      ]);
-
       const [prods, cli, sett, ordersData] = await Promise.all([
-        prodsRes.json(),
-        clientRes.json(),
-        settingsRes.json(),
-        ordersRes.json()
+        requestJson<Product[]>('/api/products'),
+        requestJson<Client>('/api/client'),
+        requestJson<AppSettings>('/api/settings'),
+        requestJson<OrderRecord[]>('/api/orders')
       ]);
 
       setProducts(prods.sort((a: Product, b: Product) => a.name.localeCompare(b.name)));
       setClient(cli);
       setSettings(sett);
-      setCustomerOrders((ordersData as OrderRecord[]).slice().reverse());
+      setCustomerOrders(ordersData.slice().reverse());
     } catch (error) {
       console.error('Error fetching data:', error);
+      alert('Nao foi possivel carregar os dados do sistema.');
     } finally {
       setLoading(false);
     }
@@ -96,12 +108,14 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
     const params = new URLSearchParams(window.location.search);
     const orderId = params.get('orderId');
     if (orderId) {
-      fetch(`/api/orders/${orderId}`)
-        .then(res => res.json())
+      requestJson<OrderRecord | { error: string }>(`/api/orders/${orderId}`)
         .then((data: OrderRecord | { error: string }) => {
           if ('error' in data) return;
           setOrderToView(data);
           setView('view-order');
+        })
+        .catch(error => {
+          console.error('Error loading order:', error);
         });
     }
   }, []);
@@ -231,47 +245,44 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   const handleConfirmOrder = async () => {
     if (!client || orderItems.length === 0) return;
 
-    const total = calculateTotal();
-    const newBalance = client.balance - total;
-    const payloadItems = orderItems.map(item => ({
-      name: item.product.name,
-      type: item.product.type,
-      quantity: item.quantity,
-      price: item.price
-    }));
+    try {
+      const total = calculateTotal();
+      const payloadItems = orderItems.map(item => ({
+        name: item.product.name,
+        type: item.product.type,
+        quantity: item.quantity,
+        price: item.price
+      }));
 
-    const orderRes = await fetch('/api/orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        items: payloadItems,
-        total,
-        balance: newBalance,
-        status: 'active',
-        deletionRequested: false
-      })
-    });
-    const savedOrder = await orderRes.json();
+      const { order: savedOrder } = await requestJson<{ order: OrderRecord }>(
+        '/api/checkout',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            items: payloadItems,
+            total
+          })
+        }
+      );
 
-    await fetch('/api/client', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ balance: newBalance })
-    });
+      await fetchData();
 
-    await fetchData();
+      const date = new Date(savedOrder.createdAt).toLocaleDateString('pt-BR');
+      const msg = [
+        'Novo pedido',
+        `Data: ${date}`,
+        `Valor: R$ ${savedOrder.total.toFixed(2)}`,
+        `UUID: ${savedOrder.uuid}`
+      ].join('\n');
 
-    const date = new Date(savedOrder.createdAt).toLocaleDateString('pt-BR');
-    const msg = [
-      'Novo pedido',
-      `Data: ${date}`,
-      `Valor: R$ ${savedOrder.total.toFixed(2)}`,
-      `UUID: ${savedOrder.uuid}`
-    ].join('\n');
-
-    window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
-    setOrder({});
-    setView('history');
+      window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`, '_blank');
+      setOrder({});
+      setView('history');
+    } catch (error) {
+      console.error('Error confirming order:', error);
+      alert('Nao foi possivel confirmar o pedido. Verifique o deploy e tente novamente.');
+    }
   };
 
   const requestOrderDeletion = async (id: string) => {
@@ -681,15 +692,13 @@ const AdminView: React.FC<{
   const [uuidSearch, setUuidSearch] = useState('');
 
   const loadOrders = async () => {
-    const res = await fetch('/api/orders');
-    const data = await res.json();
-    setOrders((data as OrderRecord[]).slice().reverse());
+    const data = await requestJson<OrderRecord[]>('/api/orders');
+    setOrders(data.slice().reverse());
   };
 
   const loadPaymentLogs = async () => {
-    const res = await fetch('/api/payment-logs');
-    const data = await res.json();
-    setPaymentLogs((data as PaymentLog[]).slice().reverse());
+    const data = await requestJson<PaymentLog[]>('/api/payment-logs');
+    setPaymentLogs(data.slice().reverse());
   };
 
   useEffect(() => {
@@ -710,27 +719,21 @@ const AdminView: React.FC<{
   const updateBalance = async () => {
     const amount = parseMoneyInput(payAmount);
     if (isNaN(amount)) return;
-    const previousBalance = client.balance;
-    const newBalance = previousBalance + amount;
 
-    await fetch('/api/client', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ balance: newBalance })
-    });
-    await fetch('/api/payment-logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        amount,
-        previousBalance,
-        newBalance
-      })
-    });
-    setPayAmount('');
-    await onUpdate();
-    await loadPaymentLogs();
-    alert('Saldo atualizado.');
+    try {
+      await requestJson('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount })
+      });
+      setPayAmount('');
+      await onUpdate();
+      await loadPaymentLogs();
+      alert('Saldo atualizado.');
+    } catch (error) {
+      console.error('Error updating balance:', error);
+      alert('Nao foi possivel registrar o pagamento.');
+    }
   };
 
   const undoPayment = async (log: PaymentLog) => {
@@ -750,47 +753,67 @@ const AdminView: React.FC<{
 
   const addProduct = async () => {
     if (!newProdName) return;
-    await fetch('/api/products', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newProdName,
-        type: newProdType,
-        active: true
-      })
-    });
-    setNewProdName('');
-    await onUpdate();
-    alert('Produto adicionado.');
+    try {
+      await requestJson('/api/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: newProdName,
+          type: newProdType,
+          active: true
+        })
+      });
+      setNewProdName('');
+      await onUpdate();
+      alert('Produto adicionado.');
+    } catch (error) {
+      console.error('Error adding product:', error);
+      alert('Nao foi possivel adicionar o produto.');
+    }
   };
 
   const toggleProduct = async (product: Product) => {
-    await fetch(`/api/products/${product.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ active: !product.active })
-    });
-    await onUpdate();
+    try {
+      await requestJson(`/api/products/${product.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: !product.active })
+      });
+      await onUpdate();
+    } catch (error) {
+      console.error('Error toggling product:', error);
+      alert('Nao foi possivel atualizar o produto.');
+    }
   };
 
   const updatePrices = async (common: number, adhesive: number) => {
-    await fetch('/api/settings', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        commonPrice: common,
-        adhesivePrice: adhesive
-      })
-    });
-    await onUpdate();
-    alert('Precos atualizados.');
+    try {
+      await requestJson('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commonPrice: common,
+          adhesivePrice: adhesive
+        })
+      });
+      await onUpdate();
+      alert('Precos atualizados.');
+    } catch (error) {
+      console.error('Error updating prices:', error);
+      alert('Nao foi possivel atualizar os precos.');
+    }
   };
 
   const deleteOrder = async (id: string) => {
     if (!confirm('Excluir definitivamente este pedido?')) return;
-    await fetch(`/api/orders/${id}/permanent`, { method: 'DELETE' });
-    await onUpdate();
-    await loadOrders();
+    try {
+      await requestJson(`/api/orders/${id}/permanent`, { method: 'DELETE' });
+      await onUpdate();
+      await loadOrders();
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      alert('Nao foi possivel excluir o pedido.');
+    }
   };
 
   return (

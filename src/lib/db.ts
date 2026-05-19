@@ -1,8 +1,11 @@
 import crypto from 'crypto';
 import fs from 'fs/promises';
+import os from 'os';
 import path from 'path';
 
-const DB_FILE = path.join(process.cwd(), 'db.json');
+const SOURCE_DB_FILE = path.join(/* turbopackIgnore: true */ process.cwd(), 'db.json');
+const DATA_DIR = process.env.DATA_DIR || path.join(os.tmpdir(), 'temperossistem');
+const DB_FILE = process.env.DB_FILE_PATH || path.join(DATA_DIR, 'db.json');
 
 export const INITIAL_DATA = {
   products: [
@@ -88,6 +91,7 @@ export const INITIAL_DATA = {
 
 export async function readDb() {
   try {
+    await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
     const data = await fs.readFile(DB_FILE, 'utf-8');
     const parsed = JSON.parse(data);
     if (!parsed.orders) parsed.orders = [];
@@ -105,11 +109,18 @@ export async function readDb() {
     }));
     return parsed;
   } catch {
-    await fs.writeFile(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2));
-    return INITIAL_DATA;
+    try {
+      const sourceData = await fs.readFile(SOURCE_DB_FILE, 'utf-8');
+      await fs.writeFile(DB_FILE, sourceData, 'utf-8');
+      return JSON.parse(sourceData);
+    } catch {
+      await fs.writeFile(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2), 'utf-8');
+      return INITIAL_DATA;
+    }
   }
 }
 
 export async function writeDb(data: unknown) {
-  await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2));
+  await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+  await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
