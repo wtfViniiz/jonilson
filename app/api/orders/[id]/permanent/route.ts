@@ -13,6 +13,9 @@ export async function DELETE(_request: Request, context: { params: Promise<{ id:
   }
 
   const [removedOrder] = db.orders.splice(index, 1);
+  if (removedOrder.status !== 'canceled') {
+    db.client.balance += Number(removedOrder.total) || 0;
+  }
   await writeDb(db);
-  return NextResponse.json({ success: true, removedOrder });
+  return NextResponse.json({ success: true, removedOrder, client: db.client });
 }

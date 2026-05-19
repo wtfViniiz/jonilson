@@ -25,6 +25,168 @@ import { WHATSAPP_NUMBER } from './constants';
 type View = 'order' | 'review' | 'history' | 'admin-login' | 'admin' | 'view-order';
 type AdminTab = 'balance' | 'products' | 'settings' | 'orders';
 type AppMode = 'client' | 'admin';
+const ADMIN_AUTH_STORAGE_KEY = 'temperossistem.admin.authenticated';
+const SEARCH_STOP_WORDS = ['de', 'do', 'da', 'dos', 'das', 'para', 'em'];
+
+const normalizeText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/ãƒ|â|Ã|ƒ|œ|‡||“/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const normalizeProductName = (value: string) =>
+  normalizeText(
+    value
+      .replace(/aÃ‡afrÃƒo|aÃ‡afrÃ£o|aÃ‡afrao|açafrao|acafrao/gi, 'acafrao')
+      .replace(/grÃƒo|grão|grao/gi, 'grao')
+      .replace(/moÃda|moida/gi, 'moida')
+      .replace(/pÃprica|paprica/gi, 'paprica')
+      .replace(/cravinho/gi, 'cravo')
+      .replace(/lemon peppe/gi, 'lemon pepper')
+  );
+
+const compactText = (value: string) => value.replace(/\s+/g, '');
+
+const levenshteinDistance = (a: string, b: string) => {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  const matrix = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0));
+
+  for (let i = 0; i <= a.length; i += 1) matrix[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) matrix[0][j] = j;
+
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost
+      );
+    }
+  }
+
+  return matrix[a.length][b.length];
+};
+
+const buildSearchTerms = (product: Product) => {
+  const normalizedName = normalizeProductName(product.name);
+  const tokens = normalizedName.split(' ').filter(Boolean);
+  const trimmedTokens = tokens.filter(token => !SEARCH_STOP_WORDS.includes(token));
+  const searchTerms = new Set<string>([
+    normalizedName,
+    trimmedTokens.join(' '),
+    compactText(normalizedName),
+  ]);
+
+  if (normalizedName.includes('milho de pipoca')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`pipoca ${weight}`.trim());
+    searchTerms.add(`milho pipoca ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('pimenta do reino moida')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`pimenta moida ${weight}`.trim());
+    searchTerms.add(`reino moida ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('pimenta em grao')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`pimenta grao ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('cominho em grao')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`cominho grao ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('pimenta com cominho')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`pimenta com c ${weight}`.trim());
+    searchTerms.add(`pimenta c cominho ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('tempero ana maria braga')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`tempero ana ${weight}`.trim());
+    searchTerms.add(`tempero da ana ${weight}`.trim());
+    searchTerms.add(`ana maria ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('tempero do chefe')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`tempero chef ${weight}`.trim());
+    searchTerms.add(`chef ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('confeito de chocolate')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`confeito ${weight}`.trim());
+    searchTerms.add(`confeito ad ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('canela em casca')) {
+    const weight = tokens.find(token => token.endsWith('g')) || '';
+    searchTerms.add(`canela ${weight}`.trim());
+  }
+
+  if (normalizedName.includes('lemon pepper')) {
+    searchTerms.add('lemon peppe 20g');
+  }
+
+  if (normalizedName.includes('acafrao')) {
+    searchTerms.add(normalizedName.replace(/acafrao/g, 'acafrao'));
+  }
+
+  return [...searchTerms].filter(Boolean);
+};
+
+const getSearchScore = (product: Product, rawTerm: string) => {
+  const term = normalizeProductName(rawTerm);
+  if (!term) return 1;
+
+  const compactTerm = compactText(term);
+  const queryTokens = term.split(' ').filter(Boolean);
+  const searchTerms = buildSearchTerms(product);
+  let bestScore = 0;
+
+  for (const candidate of searchTerms) {
+    if (!candidate) continue;
+    if (candidate === term) return 200;
+    if (candidate.startsWith(term)) bestScore = Math.max(bestScore, 170);
+    if (candidate.includes(term)) bestScore = Math.max(bestScore, 150);
+
+    const compactCandidate = compactText(candidate);
+    if (compactCandidate.includes(compactTerm)) {
+      bestScore = Math.max(bestScore, 145);
+    }
+
+    const candidateTokens = candidate.split(' ').filter(Boolean);
+    const matchedTokens = queryTokens.filter(token =>
+      candidateTokens.some(candidateToken => candidateToken.includes(token) || token.includes(candidateToken))
+    ).length;
+
+    if (matchedTokens > 0) {
+      bestScore = Math.max(bestScore, 90 + matchedTokens * 15);
+    }
+
+    if (compactTerm.length >= 4) {
+      const distance = levenshteinDistance(compactTerm, compactCandidate.slice(0, compactTerm.length + 2));
+      if (distance <= 2) {
+        bestScore = Math.max(bestScore, 115 - distance * 10);
+      }
+    }
+  }
+
+  return bestScore;
+};
 
 const formatSignedCurrency = (value: number) => {
   const formatted = Math.abs(value).toFixed(2).replace('.', ',');
@@ -47,7 +209,10 @@ const parseMoneyInput = (value: string) => {
 };
 
 const requestJson = async <T,>(input: RequestInfo | URL, init?: RequestInit): Promise<T> => {
-  const response = await fetch(input, init);
+  const response = await fetch(input, {
+    cache: 'no-store',
+    ...init,
+  });
   let payload: any = null;
 
   try {
@@ -100,6 +265,9 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
 
   useEffect(() => {
     fetchData();
+    if (typeof window === 'undefined') {
+      return;
+    }
 
     if (mode === 'admin') {
       return;
@@ -120,8 +288,28 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
     }
   }, []);
 
+  useEffect(() => {
+    if (mode !== 'admin' || !settings || typeof window === 'undefined') {
+      return;
+    }
+
+    const isAuthenticated = window.localStorage.getItem(ADMIN_AUTH_STORAGE_KEY) === 'true';
+    setView(isAuthenticated ? 'admin' : 'admin-login');
+  }, [mode, settings]);
+
   const filteredProducts = useMemo(() => {
-    return products.filter(p => p.active && p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    return products
+      .filter(product => product.active)
+      .map(product => ({
+        product,
+        score: getSearchScore(product, searchTerm),
+      }))
+      .filter(({ score }) => !searchTerm.trim() || score >= 90)
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return a.product.name.localeCompare(b.product.name);
+      })
+      .map(({ product }) => product);
   }, [products, searchTerm]);
 
   const orderItems = useMemo(() => {
@@ -300,6 +488,9 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
 
   const checkAdminPassword = () => {
     if (settings && adminPassInput === settings.adminPassword) {
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(ADMIN_AUTH_STORAGE_KEY, 'true');
+      }
       setView('admin');
       return;
     }
@@ -336,7 +527,7 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
         </div>
       </header>
 
-      <main className="max-w-lg mx-auto p-4">
+      <main className={`max-w-lg mx-auto p-4 ${mode === 'client' && view === 'order' && totalQty > 0 ? 'pb-56' : ''}`}>
         <AnimatePresence mode="wait">
           {view === 'view-order' && orderToView && (
             <motion.div
@@ -442,6 +633,9 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
               client={client}
               products={products}
               onBack={() => {
+                if (typeof window !== 'undefined') {
+                  window.localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
+                }
                 if (typeof window !== 'undefined') {
                   window.location.href = '/';
                 }
@@ -587,8 +781,8 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Pesquisar temperos..."
-                  className="w-full pl-10 pr-4 py-3 bg-white rounded-lg shadow-sm border border-slate-200 text-sm"
+                  placeholder="Pesquisar: pipoca 300g, tempero da ana, pimenta moida..."
+                  className="w-full pl-10 pr-4 py-3 bg-white rounded-lg shadow-sm border border-slate-200 text-sm touch-manipulation"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                 />
@@ -624,22 +818,25 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
                       </div>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {[5, 10, 15, 20].map(val => (
                         <button
                           key={val}
                           onClick={() => p.id && setQuantity(p.id, val)}
-                          className={`flex-1 py-1.5 rounded-lg border text-[10px] font-bold ${order[p.id!] === val ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-400 hover:border-slate-300'}`}
+                          className={`min-h-10 rounded-lg border text-xs font-bold touch-manipulation ${order[p.id!] === val ? 'bg-emerald-50 border-emerald-500 text-emerald-700' : 'bg-slate-50 border-slate-100 text-slate-500 hover:border-slate-300'}`}
                         >
                           Qtd: {val}
                         </button>
                       ))}
-                      {order[p.id!] > 0 && (
-                        <button onClick={() => p.id && setQuantity(p.id, 0)} className="p-1 px-2 text-red-500 hover:bg-red-50 rounded-lg">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
                     </div>
+                    {order[p.id!] > 0 && (
+                      <button
+                        onClick={() => p.id && setQuantity(p.id, 0)}
+                        className="w-full min-h-10 text-red-500 hover:bg-red-50 rounded-lg border border-red-100 touch-manipulation flex items-center justify-center"
+                      >
+                          <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                   </motion.div>
                 ))}
               </div>
@@ -649,14 +846,19 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
       </main>
 
       {mode === 'client' && view === 'order' && totalQty > 0 && (
-        <motion.div initial={{ y: 100 }} animate={{ y: 0 }} className="fixed bottom-0 left-0 right-0 p-6 bg-slate-50 border-t border-slate-200 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-30">
+        <motion.div
+          initial={{ y: 100 }}
+          animate={{ y: 0 }}
+          className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-slate-50 shadow-[0_-4px_10px_rgba(0,0,0,0.05)] z-30"
+          style={{ padding: '1rem 1.25rem max(1rem, env(safe-area-inset-bottom))' }}
+        >
           <div className="max-w-lg mx-auto">
             <div className="flex justify-between items-end mb-4">
               <div>
                 <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Total Geral</p>
-                <p className="text-3xl font-black text-slate-900 font-mono tracking-tighter">R$ {calculateTotal().toFixed(2)}</p>
+                <p className="text-2xl sm:text-3xl font-black text-slate-900 font-mono tracking-tighter">R$ {calculateTotal().toFixed(2)}</p>
               </div>
-              <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase">
+              <span className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-full text-xs font-bold uppercase shrink-0">
                 {totalQty} Itens
               </span>
             </div>
@@ -708,6 +910,36 @@ const AdminView: React.FC<{
     if (tab === 'balance') {
       loadPaymentLogs();
     }
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab !== 'orders' || typeof window === 'undefined') {
+      return;
+    }
+
+    const refreshOrders = () => {
+      loadOrders().catch(error => {
+        console.error('Error refreshing orders:', error);
+      });
+    };
+
+    refreshOrders();
+    const intervalId = window.setInterval(refreshOrders, 10000);
+    const handleFocus = () => refreshOrders();
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        refreshOrders();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [tab]);
 
   const filteredOrders = useMemo(() => {
@@ -816,6 +1048,17 @@ const AdminView: React.FC<{
     }
   };
 
+  const printOrder = (order: OrderRecord) => {
+    const doc = generatePDF(order);
+    doc.autoPrint({ variant: 'non-conform' });
+    const printUrl = doc.output('bloburl');
+    const printWindow = window.open(printUrl, '_blank', 'noopener,noreferrer');
+
+    if (!printWindow) {
+      alert('O navegador bloqueou a janela de impressao. Libere pop-ups e tente novamente.');
+    }
+  };
+
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
       <div className="flex items-center gap-4">
@@ -877,7 +1120,7 @@ const AdminView: React.FC<{
                   <FileText className="w-3 h-3" /> Baixar PDF
                 </button>
                 <button
-                  onClick={() => generatePDF(order).autoPrint({ variant: 'non-conform' })}
+                  onClick={() => printOrder(order)}
                   className="py-2 bg-slate-100 text-slate-700 rounded-lg text-[11px] font-bold"
                 >
                   Preparar impressao
