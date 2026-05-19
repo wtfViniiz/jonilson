@@ -305,7 +305,7 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
         <div className="flex justify-between items-center max-w-lg mx-auto gap-4">
           <div>
             <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-              <ShoppingCart className="w-6 h-6" /> Pedir Temperos
+              <ShoppingCart className="w-6 h-6" /> Pedir   Temperos
             </h1>
             {client && (
               <p className="text-sm opacity-90 flex items-center gap-1 mt-1 text-emerald-100">
