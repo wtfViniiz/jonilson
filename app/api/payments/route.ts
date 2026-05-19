@@ -9,7 +9,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     const amount = Number(body.amount);
 
-    if (!Number.isFinite(amount) || amount === 0) {
+    if (!Number.isFinite(amount) || amount <= 0) {
       return NextResponse.json({ error: 'Invalid payment amount' }, { status: 400 });
     }
 
