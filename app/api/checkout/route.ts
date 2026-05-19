@@ -1,6 +1,6 @@
 import crypto from 'crypto';
 import { NextResponse } from 'next/server';
-import { readDb, writeDb } from '@/src/lib/db';
+import { INITIAL_DATA, readDb, writeDb } from '@/src/lib/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +14,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Invalid order payload' }, { status: 400 });
     }
 
-    const newBalance = db.client.balance - total;
+    db.client = db.client || { ...INITIAL_DATA.client };
+    db.orders = Array.isArray(db.orders) ? db.orders : [];
+
+    const currentBalance = Number(db.client.balance ?? 0) || 0;
+    const newBalance = currentBalance - total;
     const newOrder = {
       items: body.items,
       total,

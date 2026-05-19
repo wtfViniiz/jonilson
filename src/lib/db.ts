@@ -90,6 +90,33 @@ export const INITIAL_DATA = {
   },
 };
 
+const normalizeArray = <T,>(value: unknown, fallback: T[]) => (Array.isArray(value) ? value : fallback);
+
+const normalizeDb = (value: any) => ({
+  products: normalizeArray(value?.products, INITIAL_DATA.products),
+  client: {
+    ...INITIAL_DATA.client,
+    ...(value?.client || {}),
+    balance: Number(value?.client?.balance ?? INITIAL_DATA.client.balance) || 0,
+  },
+  orders: normalizeArray(value?.orders, []).map((order: any) => ({
+    ...order,
+    uuid: order?.uuid || crypto.randomUUID(),
+    deletionRequested: Boolean(order?.deletionRequested),
+  })),
+  paymentLogs: normalizeArray(value?.paymentLogs, []).map((log: any) => ({
+    ...log,
+    reversed: Boolean(log?.reversed),
+  })),
+  settings: {
+    ...INITIAL_DATA.settings,
+    ...(value?.settings || {}),
+    commonPrice: Number(value?.settings?.commonPrice ?? INITIAL_DATA.settings.commonPrice) || INITIAL_DATA.settings.commonPrice,
+    adhesivePrice: Number(value?.settings?.adhesivePrice ?? INITIAL_DATA.settings.adhesivePrice) || INITIAL_DATA.settings.adhesivePrice,
+    adminPassword: value?.settings?.adminPassword || INITIAL_DATA.settings.adminPassword,
+  },
+});
+
 export async function readDb() {
   try {
     await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
@@ -102,24 +129,11 @@ export async function readDb() {
     }
 
     const data = await fs.readFile(DB_FILE, 'utf-8');
-    const parsed = JSON.parse(data);
-    if (!parsed.orders) parsed.orders = [];
-    if (!parsed.paymentLogs) parsed.paymentLogs = [];
-    if (!parsed.settings) parsed.settings = INITIAL_DATA.settings;
-    if (!parsed.settings.adminPassword) parsed.settings.adminPassword = INITIAL_DATA.settings.adminPassword;
-    parsed.orders = parsed.orders.map((order: any) => ({
-      ...order,
-      uuid: order.uuid || crypto.randomUUID(),
-      deletionRequested: order.deletionRequested || false,
-    }));
-    parsed.paymentLogs = parsed.paymentLogs.map((log: any) => ({
-      ...log,
-      reversed: log.reversed || false,
-    }));
-    return parsed;
+    return normalizeDb(JSON.parse(data));
   } catch {
-    await fs.writeFile(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2), 'utf-8');
-    return INITIAL_DATA;
+    const normalized = normalizeDb(INITIAL_DATA);
+    await fs.writeFile(DB_FILE, JSON.stringify(normalized, null, 2), 'utf-8');
+    return normalized;
   }
 }
 

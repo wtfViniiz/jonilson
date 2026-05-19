@@ -417,14 +417,27 @@
   ],
   "client": {
     "name": "Jonilson",
-    "balance": 0
+    "balance": -290.9
   },
-  "orders": [],
-  "settings": {
-    "commonPrice": 0.95,
-    "adhesivePrice": 2.5,
-    "adminPassword": "Barbosa05183104."
-  },
+  "orders": [
+    {
+      "items": [
+        {
+          "name": "AÇAFRÃO 20G",
+          "type": "comum",
+          "quantity": 1,
+          "price": 0.95
+        }
+      ],
+      "total": 0.95,
+      "balance": -0.95,
+      "status": "active",
+      "deletionRequested": false,
+      "id": "1779219813783",
+      "uuid": "7cc52ab6-031c-4230-bb02-e09562c3e50d",
+      "createdAt": "2026-05-19T19:43:33.785Z"
+    }
+  ],
   "paymentLogs": [
     {
       "id": "1779212493864",
@@ -459,7 +472,13 @@
       "amount": 16.15,
       "previousBalance": -16.15,
       "newBalance": 0,
-      "createdAt": "2026-05-19T17:49:55.353Z"
+      "createdAt": "2026-05-19T17:49:55.353Z",
+      "reversed": false
     }
-  ]
+  ],
+  "settings": {
+    "commonPrice": 0.95,
+    "adhesivePrice": 2.5,
+    "adminPassword": "Barbosa05183104."
+  }
 }
