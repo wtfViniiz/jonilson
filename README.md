@@ -1,20 +1,95 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# 🌶️ Sistema de Pedidos — Temperos
 
-# Run and deploy your AI Studio app
+Sistema web desenvolvido para gerenciamento de pedidos de temperos através de um carrinho de compras simples e direto.
 
-This contains everything you need to run your app locally.
+O cliente seleciona os produtos desejados, define as quantidades e envia o pedido.
+Após o envio, o sistema gera uma identificação única (UUID) que é enviada via WhatsApp.
 
-View your app in AI Studio: https://ai.studio/apps/e8fa024a-e13d-4e52-a080-769a86b21513
+No painel administrativo, o atendente utiliza essa UUID para localizar o pedido, visualizar os itens solicitados e gerar um PDF do orçamento para impressão.
 
-## Run Locally
+---
 
-**Prerequisites:**  Node.js
+## 🚀 Funcionalidades
 
+* Carrinho de compras
+* Seleção de produtos e quantidades
+* Geração automática de UUID para pedidos
+* Integração com WhatsApp
+* Painel administrativo
+* Busca de pedidos por UUID
+* Geração de orçamento em PDF
+* Interface responsiva
+* Estrutura preparada para deploy na Vercel
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+---
+
+## 🛠️ Tecnologias utilizadas
+
+* Next.js
+* React
+* TypeScript
+* TailwindCSS
+* Node.js
+
+---
+
+## 📦 Instalação
+
+Clone o projeto:
+
+```bash
+git clone https://github.com/wtfViniiz/jonilson.git
+```
+
+Entre na pasta:
+
+```bash
+cd jonilson
+```
+
+Instale as dependências:
+
+```bash
+npm install
+```
+
+Execute em ambiente de desenvolvimento:
+
+```bash
+npm run dev
+```
+
+---
+
+## ⚙️ Build para produção
+
+```bash
+npm run build
+```
+
+---
+
+## ☁️ Deploy
+
+Projeto preparado para deploy utilizando:
+
+* Vercel
+
+---
+
+## 🔐 Fluxo do sistema
+
+1. Cliente seleciona os produtos
+2. Define as quantidades
+3. Finaliza o pedido
+4. Sistema gera uma UUID única
+5. UUID é enviada via WhatsApp
+6. Administrador acessa o painel
+7. Cola a UUID do pedido
+8. Sistema gera o orçamento em PDF
+
+---
+
+## 📄 Licença
+
+Projeto privado desenvolvido sob demanda para cliente.
