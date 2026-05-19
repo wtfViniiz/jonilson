@@ -5,6 +5,7 @@ import { jsPDF } from 'jspdf';
 import { ClientWorkspace } from './components/client/ClientWorkspace';
 import { AdminView } from './components/admin/AdminView';
 import { AdminLoginView } from './components/admin/AdminLoginView';
+import { ToastProvider, pushToast } from './components/toast/ToastProvider';
 import { getSearchScore } from './lib/search';
 import { formatSignedCurrency, requestJson } from './lib/ui';
 import { WHATSAPP_NUMBER } from './constants';
@@ -25,6 +26,7 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   const [orderToView, setOrderToView] = useState<OrderRecord | null>(null);
   const [customerOrders, setCustomerOrders] = useState<OrderRecord[]>([]);
   const [adminTab, setAdminTab] = useState<AdminTab>('orders');
+  const [adminAuthenticated, setAdminAuthenticated] = useState(false);
 
   const fetchData = async () => {
     try {
@@ -41,7 +43,11 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
       setCustomerOrders(ordersData.slice().reverse());
     } catch (error) {
       console.error('Error fetching data:', error);
-      alert('Nao foi possivel carregar os dados do sistema.');
+      pushToast({
+        kind: 'error',
+        title: 'Falha ao carregar dados',
+        description: 'Nao foi possivel carregar os dados do sistema.'
+      });
     } finally {
       setLoading(false);
     }
@@ -68,10 +74,11 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   }, [mode]);
 
   useEffect(() => {
-    if (mode !== 'admin' || !settings || typeof window === 'undefined') return;
+    if (mode !== 'admin' || typeof window === 'undefined') return;
     const isAuthenticated = window.localStorage.getItem(ADMIN_AUTH_STORAGE_KEY) === 'true';
+    setAdminAuthenticated(isAuthenticated);
     setView(isAuthenticated ? 'admin' : 'admin-login');
-  }, [mode, settings]);
+  }, [mode]);
 
   const filteredProducts = useMemo(() => {
     return products
@@ -226,19 +233,37 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
       setView('history');
     } catch (error) {
       console.error('Error confirming order:', error);
-      alert('Nao foi possivel confirmar o pedido. Verifique o deploy e tente novamente.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel confirmar o pedido',
+        description: 'Verifique o deploy e tente novamente.'
+      });
     }
   };
 
   const requestOrderDeletion = async (id: string) => {
     if (!confirm('Solicitar exclusao deste pedido para o administrador?')) return;
-    await requestJson(`/api/orders/${id}/request-deletion`, { method: 'PATCH' });
-    await fetchData();
-    if (orderToView?.id === id) {
-      setOrderToView({
-        ...orderToView,
-        deletionRequested: true,
-        deletionRequestedAt: new Date().toISOString()
+    try {
+      await requestJson(`/api/orders/${id}/request-deletion`, { method: 'PATCH' });
+      await fetchData();
+      if (orderToView?.id === id) {
+        setOrderToView({
+          ...orderToView,
+          deletionRequested: true,
+          deletionRequestedAt: new Date().toISOString()
+        });
+      }
+      pushToast({
+        kind: 'success',
+        title: 'Solicitacao enviada',
+        description: 'O administrador foi notificado.'
+      });
+    } catch (error) {
+      console.error('Error requesting order deletion:', error);
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel solicitar exclusao',
+        description: 'Tente novamente em instantes.'
       });
     }
   };
@@ -248,10 +273,14 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(ADMIN_AUTH_STORAGE_KEY, 'true');
       }
+      setAdminAuthenticated(true);
       setView('admin');
       return;
     }
-    alert('Senha incorreta');
+    pushToast({
+      kind: 'error',
+      title: 'Senha incorreta'
+    });
   };
 
   if (loading) {
@@ -259,66 +288,69 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24">
-      {mode === 'admin' && view === 'admin-login' && (
-        <div className="max-w-lg mx-auto p-4">
-          <AdminLoginView
-            password={adminPassInput}
-            onPasswordChange={setAdminPassInput}
-            onSubmit={checkAdminPassword}
-            onBack={() => {
-              if (typeof window !== 'undefined') {
-                window.location.href = '/';
-              }
-            }}
-          />
-        </div>
-      )}
+    <ToastProvider>
+      <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-24">
+        {mode === 'admin' && view === 'admin-login' && !adminAuthenticated && (
+          <div className="max-w-lg mx-auto p-4">
+            <AdminLoginView
+              password={adminPassInput}
+              onPasswordChange={setAdminPassInput}
+              onSubmit={checkAdminPassword}
+              onBack={() => {
+                if (typeof window !== 'undefined') {
+                  window.location.href = '/';
+                }
+              }}
+            />
+          </div>
+        )}
 
-      {view === 'admin' && settings && client && (
-        <div className="max-w-lg mx-auto p-4">
-          <AdminView
-            settings={settings}
+        {view === 'admin' && settings && client && (
+          <div className="max-w-lg mx-auto p-4">
+            <AdminView
+              settings={settings}
+              client={client}
+              products={products}
+              onBack={() => {
+                if (typeof window !== 'undefined') {
+                  window.localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
+                  window.location.href = '/';
+                }
+                setAdminAuthenticated(false);
+                setAdminPassInput('');
+              }}
+              onUpdate={fetchData}
+              generatePDF={generatePDF}
+              tab={adminTab}
+              onTabChange={setAdminTab}
+            />
+          </div>
+        )}
+
+        {mode === 'client' && (
+          <ClientWorkspace
+            mode={mode}
+            view={view}
             client={client}
-            products={products}
-            onBack={() => {
-              if (typeof window !== 'undefined') {
-                window.localStorage.removeItem(ADMIN_AUTH_STORAGE_KEY);
-                window.location.href = '/';
-              }
-              setAdminPassInput('');
-            }}
-            onUpdate={fetchData}
-            generatePDF={generatePDF}
-            tab={adminTab}
-            onTabChange={setAdminTab}
+            orderToView={orderToView}
+            customerOrders={customerOrders}
+            filteredProducts={filteredProducts}
+            orderItems={orderItems}
+            totalQty={totalQty}
+            calculateTotal={calculateTotal}
+            searchTerm={searchTerm}
+            setSearchTerm={setSearchTerm}
+            order={order}
+            updateQuantity={updateQuantity}
+            setQuantity={setQuantity}
+            onSetView={setView}
+            onSetOrderToView={setOrderToView}
+            onRequestOrderDeletion={requestOrderDeletion}
+            onConfirmOrder={handleConfirmOrder}
           />
-        </div>
-      )}
-
-      {mode === 'client' && (
-        <ClientWorkspace
-          mode={mode}
-          view={view}
-          client={client}
-          orderToView={orderToView}
-          customerOrders={customerOrders}
-          filteredProducts={filteredProducts}
-          orderItems={orderItems}
-          totalQty={totalQty}
-          calculateTotal={calculateTotal}
-          searchTerm={searchTerm}
-          setSearchTerm={setSearchTerm}
-          order={order}
-          updateQuantity={updateQuantity}
-          setQuantity={setQuantity}
-          onSetView={setView}
-          onSetOrderToView={setOrderToView}
-          onRequestOrderDeletion={requestOrderDeletion}
-          onConfirmOrder={handleConfirmOrder}
-        />
-      )}
-    </div>
+        )}
+      </div>
+    </ToastProvider>
   );
 };
 

@@ -5,6 +5,7 @@ import { motion } from 'motion/react';
 import { ArrowLeft, FileText, PlusCircle, Save } from 'lucide-react';
 import type { AppSettings, Client, OrderRecord, PaymentLog, Product } from '@/src/types';
 import { formatMoneyInput, formatSignedCurrency, parseMoneyInput, requestJson } from '@/src/lib/ui';
+import { pushToast } from '@/src/components/toast/ToastProvider';
 import type { jsPDF } from 'jspdf';
 
 type AdminTab = 'balance' | 'products' | 'settings' | 'orders';
@@ -96,10 +97,13 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
       setPayAmount('');
       await onUpdate();
       await loadPaymentLogs();
-      alert('Saldo atualizado.');
+      pushToast({ kind: 'success', title: 'Saldo atualizado.' });
     } catch (error) {
       console.error('Error updating balance:', error);
-      alert('Nao foi possivel registrar o pagamento.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel registrar o pagamento.'
+      });
     }
   };
 
@@ -110,12 +114,15 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
       method: 'PATCH',
     });
     if (!res.ok) {
-      alert('Nao foi possivel desfazer esse pagamento.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel desfazer esse pagamento.'
+      });
       return;
     }
     await onUpdate();
     await loadPaymentLogs();
-    alert('Pagamento desfeito.');
+    pushToast({ kind: 'success', title: 'Pagamento desfeito.' });
   };
 
   const addProduct = async () => {
@@ -132,10 +139,13 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
       });
       setNewProdName('');
       await onUpdate();
-      alert('Produto adicionado.');
+      pushToast({ kind: 'success', title: 'Produto adicionado.' });
     } catch (error) {
       console.error('Error adding product:', error);
-      alert('Nao foi possivel adicionar o produto.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel adicionar o produto.'
+      });
     }
   };
 
@@ -149,7 +159,10 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
       await onUpdate();
     } catch (error) {
       console.error('Error toggling product:', error);
-      alert('Nao foi possivel atualizar o produto.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel atualizar o produto.'
+      });
     }
   };
 
@@ -164,10 +177,13 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
         })
       });
       await onUpdate();
-      alert('Precos atualizados.');
+      pushToast({ kind: 'success', title: 'Precos atualizados.' });
     } catch (error) {
       console.error('Error updating prices:', error);
-      alert('Nao foi possivel atualizar os precos.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel atualizar os precos.'
+      });
     }
   };
 
@@ -179,7 +195,10 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
       await loadOrders();
     } catch (error) {
       console.error('Error deleting order:', error);
-      alert('Nao foi possivel excluir o pedido.');
+      pushToast({
+        kind: 'error',
+        title: 'Nao foi possivel excluir o pedido.'
+      });
     }
   };
 
@@ -190,7 +209,11 @@ export function AdminView({ settings, client, products, onBack, onUpdate, genera
     const printWindow = window.open(printUrl, '_blank', 'noopener,noreferrer');
 
     if (!printWindow) {
-      alert('O navegador bloqueou a janela de impressao. Libere pop-ups e tente novamente.');
+      pushToast({
+        kind: 'error',
+        title: 'Janela de impressao bloqueada',
+        description: 'Libere pop-ups e tente novamente.'
+      });
     }
   };
 
