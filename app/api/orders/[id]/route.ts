@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const db = await readDb();
-  const order = db.orders.find((item: any) => item.id === id);
+  const order = db.orders.find((item: any) => String(item.id) === id || item.uuid === id);
 
   if (!order) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -19,7 +19,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const { id } = await context.params;
   const db = await readDb();
   const body = await request.json();
-  const index = db.orders.findIndex((order: any) => order.id === id);
+  const index = db.orders.findIndex((order: any) => String(order.id) === id || order.uuid === id);
 
   if (index === -1) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 });
@@ -43,7 +43,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const db = await readDb();
-  const index = db.orders.findIndex((order: any) => order.id === id);
+  const index = db.orders.findIndex((order: any) => String(order.id) === id || order.uuid === id);
 
   if (index === -1) {
     return NextResponse.json({ error: 'Order not found' }, { status: 404 });

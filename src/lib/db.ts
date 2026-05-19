@@ -105,6 +105,7 @@ const normalizeDb = (value: any) => ({
   },
   orders: normalizeArray(value?.orders, []).map((order: any) => ({
     ...order,
+    id: String(order?.id ?? crypto.randomUUID()),
     uuid: order?.uuid || crypto.randomUUID(),
     deletionRequested: Boolean(order?.deletionRequested),
   })),
