@@ -74,6 +74,13 @@ npm run build
 Projeto preparado para deploy utilizando:
 
 * Vercel
+* Supabase para persistência compartilhada de pedidos, saldo e histórico
+
+Para configurar o Supabase:
+
+1. Crie um projeto no Supabase
+2. Rode o SQL em `supabase/schema.sql`
+3. Configure `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` no ambiente
 
 ---
 

@@ -4,9 +4,13 @@ import os from 'os';
 import path from 'path';
 
 const SOURCE_DB_FILE = path.join(/* turbopackIgnore: true */ process.cwd(), 'db.json');
-const LEGACY_DATA_DIR = process.env.DATA_DIR || path.join(os.tmpdir(), 'temperossistem');
-const LEGACY_DB_FILE = process.env.DB_FILE_PATH || path.join(LEGACY_DATA_DIR, 'db.json');
-const DB_FILE = SOURCE_DB_FILE;
+const DATA_DIR = process.env.DATA_DIR || path.join(os.tmpdir(), 'temperossistem');
+const DB_FILE = process.env.DB_FILE_PATH || path.join(DATA_DIR, 'db.json');
+const SUPABASE_URL = process.env.SUPABASE_URL?.replace(/\/$/, '');
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_TABLE = process.env.SUPABASE_TABLE || 'app_state';
+const SUPABASE_ROW_ID = Number(process.env.SUPABASE_ROW_ID || 1);
+const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 
 export const INITIAL_DATA = {
   products: [
@@ -117,19 +121,78 @@ const normalizeDb = (value: any) => ({
   },
 });
 
+const getSupabaseHeaders = (prefer?: string) => {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error('Supabase env vars are missing');
+  }
+
+  return {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'Content-Type': 'application/json',
+    ...(prefer ? { Prefer: prefer } : {}),
+  };
+};
+
+const getSupabaseStateUrl = () => {
+  if (!SUPABASE_URL) {
+    throw new Error('Supabase URL is missing');
+  }
+
+  return `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`;
+};
+
+const readSupabaseDb = async () => {
+  const url = `${getSupabaseStateUrl()}?id=eq.${SUPABASE_ROW_ID}&select=data`;
+  const response = await fetch(url, {
+    headers: getSupabaseHeaders(),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase read failed: ${response.status} ${body}`);
+  }
+
+  const rows = (await response.json()) as Array<{ data?: unknown }>;
+  if (rows.length > 0 && rows[0]?.data) {
+    return normalizeDb(rows[0].data);
+  }
+
+  const seed = normalizeDb(INITIAL_DATA);
+  await writeSupabaseDb(seed);
+  return seed;
+};
+
+const writeSupabaseDb = async (data: unknown) => {
+  const response = await fetch(`${getSupabaseStateUrl()}?on_conflict=id`, {
+    method: 'POST',
+    headers: getSupabaseHeaders('resolution=merge-duplicates,return=representation'),
+    body: JSON.stringify([{ id: SUPABASE_ROW_ID, data }]),
+  });
+
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(`Supabase write failed: ${response.status} ${body}`);
+  }
+};
+
 export async function readDb() {
+  if (USE_SUPABASE) {
+    return readSupabaseDb();
+  }
+
   try {
     await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
-
-    const dbStat = await fs.stat(DB_FILE).catch(() => null);
-    const legacyStat = await fs.stat(LEGACY_DB_FILE).catch(() => null);
-    if ((!dbStat && legacyStat) || (dbStat && legacyStat && legacyStat.mtimeMs > dbStat.mtimeMs)) {
-      const legacyData = await fs.readFile(LEGACY_DB_FILE, 'utf-8');
-      await fs.writeFile(DB_FILE, legacyData, 'utf-8');
+    try {
+      const data = await fs.readFile(DB_FILE, 'utf-8');
+      return normalizeDb(JSON.parse(data));
+    } catch {
+      const sourceData = await fs.readFile(SOURCE_DB_FILE, 'utf-8');
+      const normalized = normalizeDb(JSON.parse(sourceData));
+      await fs.writeFile(DB_FILE, JSON.stringify(normalized, null, 2), 'utf-8');
+      return normalized;
     }
-
-    const data = await fs.readFile(DB_FILE, 'utf-8');
-    return normalizeDb(JSON.parse(data));
   } catch {
     const normalized = normalizeDb(INITIAL_DATA);
     await fs.writeFile(DB_FILE, JSON.stringify(normalized, null, 2), 'utf-8');
@@ -138,6 +201,11 @@ export async function readDb() {
 }
 
 export async function writeDb(data: unknown) {
+  if (USE_SUPABASE) {
+    await writeSupabaseDb(data);
+    return;
+  }
+
   await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
   await fs.writeFile(DB_FILE, JSON.stringify(data, null, 2), 'utf-8');
 }
