@@ -887,11 +887,20 @@ const AdminView: React.FC<{
   onTabChange: (tab: AdminTab) => void;
 }> = ({ settings, client, products, onBack, onUpdate, generatePDF, tab, onTabChange }) => {
   const [payAmount, setPayAmount] = useState('');
+  const [financeAdvancedUnlocked, setFinanceAdvancedUnlocked] = useState(false);
+  const [financeUnlockTaps, setFinanceUnlockTaps] = useState(0);
+  const [registerDebt, setRegisterDebt] = useState(false);
   const [newProdName, setNewProdName] = useState('');
   const [newProdType, setNewProdType] = useState<'comum' | 'adesivo'>('comum');
   const [orders, setOrders] = useState<OrderRecord[]>([]);
   const [paymentLogs, setPaymentLogs] = useState<PaymentLog[]>([]);
   const [uuidSearch, setUuidSearch] = useState('');
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = window.sessionStorage.getItem('temperossistem.finance.advanced') === 'true';
+    setFinanceAdvancedUnlocked(stored);
+  }, []);
 
   const loadOrders = async () => {
     const data = await requestJson<OrderRecord[]>('/api/orders');
@@ -953,10 +962,11 @@ const AdminView: React.FC<{
     if (isNaN(amount)) return;
 
     try {
+      const signedAmount = registerDebt ? -Math.abs(amount) : Math.abs(amount);
       await requestJson('/api/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amount })
+        body: JSON.stringify({ amount: signedAmount })
       });
       setPayAmount('');
       await onUpdate();
@@ -966,6 +976,22 @@ const AdminView: React.FC<{
       console.error('Error updating balance:', error);
       alert('Nao foi possivel registrar o pagamento.');
     }
+  };
+
+  const handleFinanceTitleTap = () => {
+    // Hidden unlock: 7 taps in a row on the "Dar Baixa" title.
+    setFinanceUnlockTaps(prev => {
+      const next = prev + 1;
+      if (next >= 7) {
+        setFinanceAdvancedUnlocked(true);
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem('temperossistem.finance.advanced', 'true');
+        }
+        return 0;
+      }
+      window.setTimeout(() => setFinanceUnlockTaps(0), 1200);
+      return next;
+    });
   };
 
   const undoPayment = async (log: PaymentLog) => {
@@ -1151,7 +1177,9 @@ const AdminView: React.FC<{
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-            <h4 className="font-bold">Dar Baixa</h4>
+            <h4 className="font-bold select-none touch-manipulation" onClick={handleFinanceTitleTap}>
+              Dar Baixa
+            </h4>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -1165,6 +1193,23 @@ const AdminView: React.FC<{
                 <Save className="w-5 h-5" />
               </button>
             </div>
+
+            {financeAdvancedUnlocked && (
+              <div className="pt-2 border-t border-slate-100">
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span className="text-slate-600 font-medium">Modo ajuste (lancar divida)</span>
+                  <input
+                    type="checkbox"
+                    checked={registerDebt}
+                    onChange={e => setRegisterDebt(e.target.checked)}
+                    className="h-5 w-5 accent-red-600"
+                  />
+                </label>
+                <p className="text-xs text-slate-400 mt-1">
+                  Quando ativo, o valor sera registrado como negativo (aumenta o que esta devendo).
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
