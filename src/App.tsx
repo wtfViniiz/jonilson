@@ -242,36 +242,25 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
   const [customerOrders, setCustomerOrders] = useState<OrderRecord[]>([]);
   const [adminTab, setAdminTab] = useState<AdminTab>('orders');
 
-  const loadProducts = async () => {
-    const data = await requestJson<Product[]>('/api/products');
-    setProducts(data.sort((a: Product, b: Product) => a.name.localeCompare(b.name)));
-  };
-
-  const loadClient = async () => {
-    const data = await requestJson<Client>('/api/client');
-    setClient(data);
-  };
-
-  const loadSettings = async () => {
-    const data = await requestJson<AppSettings>('/api/settings');
-    setSettings(data);
-  };
-
-  const loadOrders = async () => {
-    const data = await requestJson<OrderRecord[]>('/api/orders');
-    setCustomerOrders(data.slice().reverse());
-  };
-
   const fetchData = async () => {
-    const results = await Promise.allSettled([loadProducts(), loadClient(), loadSettings(), loadOrders()]);
-    const hasError = results.some(result => result.status === 'rejected');
+    try {
+      const [prods, cli, sett, ordersData] = await Promise.all([
+        requestJson<Product[]>('/api/products'),
+        requestJson<Client>('/api/client'),
+        requestJson<AppSettings>('/api/settings'),
+        requestJson<OrderRecord[]>('/api/orders')
+      ]);
 
-    if (hasError) {
-      console.error('Error fetching data:', results.filter(result => result.status === 'rejected'));
-      alert('Nao foi possivel carregar todos os dados do sistema.');
+      setProducts(prods.sort((a: Product, b: Product) => a.name.localeCompare(b.name)));
+      setClient(cli);
+      setSettings(sett);
+      setCustomerOrders(ordersData.slice().reverse());
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      alert('Nao foi possivel carregar os dados do sistema.');
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   };
 
   useEffect(() => {
@@ -295,16 +284,9 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
         })
         .catch(error => {
           console.error('Error loading order:', error);
-        });
+      });
     }
   }, []);
-
-  useEffect(() => {
-    if (view !== 'history' || mode !== 'client') return;
-    loadOrders().catch(error => {
-      console.error('Error refreshing customer orders:', error);
-    });
-  }, [view, mode]);
 
   useEffect(() => {
     if (mode !== 'admin' || !settings || typeof window === 'undefined') {
@@ -314,13 +296,6 @@ const App: React.FC<{ mode?: AppMode }> = ({ mode = 'client' }) => {
     const isAuthenticated = window.localStorage.getItem(ADMIN_AUTH_STORAGE_KEY) === 'true';
     setView(isAuthenticated ? 'admin' : 'admin-login');
   }, [mode, settings]);
-
-  useEffect(() => {
-    if (mode !== 'admin' || view !== 'admin') return;
-    loadOrders().catch(error => {
-      console.error('Error refreshing admin orders:', error);
-    });
-  }, [mode, view]);
 
   const filteredProducts = useMemo(() => {
     return products

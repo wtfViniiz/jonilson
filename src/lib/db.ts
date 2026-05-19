@@ -4,8 +4,9 @@ import os from 'os';
 import path from 'path';
 
 const SOURCE_DB_FILE = path.join(/* turbopackIgnore: true */ process.cwd(), 'db.json');
-const DATA_DIR = process.env.DATA_DIR || path.join(os.tmpdir(), 'temperossistem');
-const DB_FILE = process.env.DB_FILE_PATH || path.join(DATA_DIR, 'db.json');
+const LEGACY_DATA_DIR = process.env.DATA_DIR || path.join(os.tmpdir(), 'temperossistem');
+const LEGACY_DB_FILE = process.env.DB_FILE_PATH || path.join(LEGACY_DATA_DIR, 'db.json');
+const DB_FILE = SOURCE_DB_FILE;
 
 export const INITIAL_DATA = {
   products: [
@@ -92,6 +93,14 @@ export const INITIAL_DATA = {
 export async function readDb() {
   try {
     await fs.mkdir(path.dirname(DB_FILE), { recursive: true });
+
+    const dbStat = await fs.stat(DB_FILE).catch(() => null);
+    const legacyStat = await fs.stat(LEGACY_DB_FILE).catch(() => null);
+    if ((!dbStat && legacyStat) || (dbStat && legacyStat && legacyStat.mtimeMs > dbStat.mtimeMs)) {
+      const legacyData = await fs.readFile(LEGACY_DB_FILE, 'utf-8');
+      await fs.writeFile(DB_FILE, legacyData, 'utf-8');
+    }
+
     const data = await fs.readFile(DB_FILE, 'utf-8');
     const parsed = JSON.parse(data);
     if (!parsed.orders) parsed.orders = [];
@@ -109,14 +118,8 @@ export async function readDb() {
     }));
     return parsed;
   } catch {
-    try {
-      const sourceData = await fs.readFile(SOURCE_DB_FILE, 'utf-8');
-      await fs.writeFile(DB_FILE, sourceData, 'utf-8');
-      return JSON.parse(sourceData);
-    } catch {
-      await fs.writeFile(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2), 'utf-8');
-      return INITIAL_DATA;
-    }
+    await fs.writeFile(DB_FILE, JSON.stringify(INITIAL_DATA, null, 2), 'utf-8');
+    return INITIAL_DATA;
   }
 }
 
